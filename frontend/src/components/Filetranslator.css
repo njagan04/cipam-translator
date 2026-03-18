@@ -1,0 +1,40 @@
+.file-container {
+  width: 600px;
+  padding: 30px;
+  border-radius: 16px;
+  background: #c0b8b8;
+  color: white;
+  box-shadow: 0 0 25px rgba(0,0,0,0.5);
+  text-align: center;
+}
+
+.file-container input,
+.file-container select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  background: #f6ebeb;
+  color: white;
+}
+
+.file-container button {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #7b2ff7, #f107a3);
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.file-output {
+  margin-top: 20px;
+  padding: 15px;
+  background: #222;
+  border-radius: 10px;
+}
+/* hide default browser file input COMPLETELY */
+#fileUpload {
+  display: none !important;
+}
