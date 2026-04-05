@@ -75,12 +75,12 @@ def translate_long_text(text: str, target_lang: str, source_lang: str = "English
 
     translated_pieces = [""] * len(valid_chunks)
     
-    # 5 worker threads allows high speed without devastating Sarvam Rate Limit bans constraints
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # 15 worker threads allows extremely high speed, testing Sarvam API rate limits constraints
+    with ThreadPoolExecutor(max_workers=15) as executor:
         futures = []
         for i, chunk in enumerate(valid_chunks):
             futures.append(executor.submit(translate_single_chunk, i, chunk))
-            time.sleep(0.05) # Prevent blasting all 8 streams instantaneously
+            time.sleep(0.01) # Tiny buffer to prevent instantly slamming server with 15 simultaneous spikes
             
         for future in futures:
             idx, result_text = future.result()

@@ -128,42 +128,48 @@ function FileTranslation() {
   const handleDownload = () => {
     const mdContainer = document.querySelector('.markdown-body');
     if (!mdContainer) return;
+
+    // Create a temporary, completely unconstrained element for flawless PDF painting
+    const printContainer = document.createElement('div');
     
-    const rawHtml = mdContainer.innerHTML;
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Translated Document (${selectedLanguage})</title>
-        <style>
-          body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, window-ui, Arial, sans-serif;
-            line-height: 1.6; color: #24292e; max-width: 900px; margin: 0 auto; padding: 40px; 
-          }
-          h1, h2, h3, h4 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-          table tr:nth-child(2n) { background-color: #f6f8fa; }
-        </style>
-      </head>
-      <body>
-        ${rawHtml}
-      </body>
-      </html>
+    // Hide it far offscreen instead of display: none (html2canvas requires it to be physically painted)
+    printContainer.style.position = 'absolute';
+    printContainer.style.top = '-9999px';
+    printContainer.style.left = '-9999px';
+    printContainer.style.width = '800px'; 
+    printContainer.style.padding = '40px';
+    printContainer.style.backgroundColor = 'white';
+    printContainer.style.color = 'black';
+    printContainer.style.fontFamily = 'Arial, sans-serif';
+    printContainer.style.lineHeight = '1.6';
+    
+    printContainer.innerHTML = mdContainer.innerHTML;
+    
+    // Inject self-contained styling so html2canvas renders tables/headers perfectly without App.css
+    const style = document.createElement('style');
+    style.innerHTML = `
+      h1, h2, h3, h4 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; color: #000; }
+      table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+      table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
+      table tr:nth-child(2n) { background-color: #f6f8fa; }
     `;
+    printContainer.appendChild(style);
     
-    // Fall back to robust HTML file string implementation for perfect styling retention natively in browser.
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // It must be connected to the DOM for it to be captured
+    document.body.appendChild(printContainer);
     
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const opt = {
+      margin:       0.5,
+      filename:     `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+    
+    // Generate PDF, then dynamically clean up the invisible container
+    html2pdf().set(opt).from(printContainer).save().then(() => {
+      document.body.removeChild(printContainer);
+    });
   };
 
   const sendMessage = async () => {
@@ -280,7 +286,7 @@ function FileTranslation() {
                   onClick={handleDownload} 
                   className="floating-download-btn"
                 >
-                  <Download size={18} /> Download HTML
+                  <Download size={18} /> Download PDF
                 </button>
               </>
             ) : (
