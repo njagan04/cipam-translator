@@ -43,7 +43,7 @@ SARVAM_LANG_MAP = {
     "Urdu": "hi-IN" # Fallback to Hindi if requested since Sarvam doesn't officially map ur-IN in this wrapper
 }
 
-def translate_long_text(text: str, target_lang: str) -> str:
+def translate_long_text(text: str, target_lang: str, source_lang: str = "English") -> str:
     """Chunks text seamlessly to fit within Sarvam AI translation limits."""
     client = get_sarvam_client()
     
@@ -52,6 +52,7 @@ def translate_long_text(text: str, target_lang: str) -> str:
     chunks = text_splitter.split_text(text)
     
     lang_code = SARVAM_LANG_MAP.get(target_lang, "hi-IN")
+    source_lang_code = SARVAM_LANG_MAP.get(source_lang, "en-IN") if source_lang != "English" else "en-IN"
     
     translated_pieces = []
     for chunk in chunks:
@@ -61,7 +62,7 @@ def translate_long_text(text: str, target_lang: str) -> str:
             # Native Sarvam AI rapid translation
             response = client.text.translate(
                 input=chunk,
-                source_language_code="en-IN",
+                source_language_code=source_lang_code,
                 target_language_code=lang_code,
                 model="mayura:v1"
             )
@@ -76,13 +77,14 @@ def translate_long_text(text: str, target_lang: str) -> str:
 @app.post("/translate-text")
 async def translate_text(
     text: str = Form(...),
-    lang: str = Form(...)
+    lang: str = Form(...),
+    source_lang: str = Form("English")
 ):
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
         
     try:
-        translated = translate_long_text(text, lang)
+        translated = translate_long_text(text, lang, source_lang)
         return {
             "success": True,
             "translated_text": translated,
