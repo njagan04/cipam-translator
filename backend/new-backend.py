@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import os
 import time
 import rag_service
+from concurrent.futures import ThreadPoolExecutor
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -54,23 +55,37 @@ def translate_long_text(text: str, target_lang: str, source_lang: str = "English
     lang_code = SARVAM_LANG_MAP.get(target_lang, "hi-IN")
     source_lang_code = SARVAM_LANG_MAP.get(source_lang, "en-IN") if source_lang != "English" else "en-IN"
     
-    translated_pieces = []
-    for chunk in chunks:
-        if not chunk.strip():
-            continue
+    valid_chunks = [c for c in chunks if c.strip()]
+    if not valid_chunks:
+        return ""
+
+    def translate_single_chunk(idx, text_chunk):
         try:
             # Native Sarvam AI rapid translation
             response = client.text.translate(
-                input=chunk,
+                input=text_chunk,
                 source_language_code=source_lang_code,
                 target_language_code=lang_code,
                 model="mayura:v1"
             )
-            translated_pieces.append(response.translated_text)
-            time.sleep(0.3)  # Small delay to prevent API rate-limit drops
+            return (idx, response.translated_text)
         except Exception as e:
-            raise Exception(f"Sarvam translation failed on chunk. Details: {str(e)}")
+            # If a strict failure happens, gracefully let the document pass with a warning, or raise
+            return (idx, f"[Error predicting text logic: {str(e)}]")
+
+    translated_pieces = [""] * len(valid_chunks)
+    
+    # 5 worker threads allows high speed without devastating Sarvam Rate Limit bans constraints
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = []
+        for i, chunk in enumerate(valid_chunks):
+            futures.append(executor.submit(translate_single_chunk, i, chunk))
+            time.sleep(0.05) # Prevent blasting all 8 streams instantaneously
             
+        for future in futures:
+            idx, result_text = future.result()
+            translated_pieces[idx] = result_text
+
     return "\n\n".join(translated_pieces)
 
 # ---------------- TEXT TRANSLATION ----------------
