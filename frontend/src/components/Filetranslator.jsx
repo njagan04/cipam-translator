@@ -129,25 +129,41 @@ function FileTranslation() {
     const mdContainer = document.querySelector('.markdown-body');
     if (!mdContainer) return;
     
-    const wrapper = document.createElement('div');
-    wrapper.style.padding = '20px';
-    wrapper.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-    wrapper.style.lineHeight = '1.6';
-    wrapper.style.color = '#000';
+    const rawHtml = mdContainer.innerHTML;
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Translated Document (${selectedLanguage})</title>
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, window-ui, Arial, sans-serif;
+            line-height: 1.6; color: #24292e; max-width: 900px; margin: 0 auto; padding: 40px; 
+          }
+          h1, h2, h3, h4 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; }
+          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+          table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
+          table tr:nth-child(2n) { background-color: #f6f8fa; }
+        </style>
+      </head>
+      <body>
+        ${rawHtml}
+      </body>
+      </html>
+    `;
     
-    // Clone node to avoid modifying the actual DOM
-    wrapper.appendChild(mdContainer.cloneNode(true));
+    // Fall back to robust HTML file string implementation for perfect styling retention natively in browser.
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     
-    const opt = {
-      margin:       0.5,
-      filename:     `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-    };
-    
-    // Natively generate the PDF blob without hitting a server
-    html2pdf().set(opt).from(wrapper).save();
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const sendMessage = async () => {
@@ -248,26 +264,25 @@ function FileTranslation() {
             <span className="pane-title">
               <FileText size={18} /> Translated Output
             </span>
-            {translatedContent && (
-              <button 
-                onClick={handleDownload} 
-                className="download-link" 
-                style={{ border: 'none', cursor: 'pointer' }}
-              >
-                <Download size={16} /> Download File
-              </button>
-            )}
           </div>
 
           <div className={`document-content ${!translatedContent ? 'empty' : ''}`}>
             {translatedContent ? (
-              <div className="markdown-body">
-                <ReactMarkdown 
-                  remarkPlugins={[remarkGfm]}
+              <>
+                <div className="markdown-body">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                  >
+                    {translatedContent}
+                  </ReactMarkdown>
+                </div>
+                <button 
+                  onClick={handleDownload} 
+                  className="floating-download-btn"
                 >
-                  {translatedContent}
-                </ReactMarkdown>
-              </div>
+                  <Download size={18} /> Download HTML
+                </button>
+              </>
             ) : (
               <>
                 <File size={48} style={{ opacity: 0.3 }} />
@@ -293,7 +308,13 @@ function FileTranslation() {
             
             {chatMessages.map((msg, i) => (
               <div key={i} className={`chat-bubble ${msg.role}`}>
-                {msg.text}
+                {msg.role === 'assistant' ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {msg.text}
+                  </ReactMarkdown>
+                ) : (
+                  msg.text
+                )}
               </div>
             ))}
             
