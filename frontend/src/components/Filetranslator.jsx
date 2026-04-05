@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { UploadCloud, File, Download, Search, Send, RefreshCw, MessageSquare } from "lucide-react";
+import html2pdf from "html2pdf.js";
 import "./Filetranslator.css";
 
 const LANGUAGES = [
@@ -128,41 +129,25 @@ function FileTranslation() {
     const mdContainer = document.querySelector('.markdown-body');
     if (!mdContainer) return;
     
-    const rawHtml = mdContainer.innerHTML;
-    const fullHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Translated Document (${selectedLanguage})</title>
-        <style>
-          body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            line-height: 1.6; color: #24292e; max-width: 900px; margin: 0 auto; padding: 40px; 
-          }
-          h1, h2, h3, h4 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; }
-          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-          table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
-          table tr:nth-child(2n) { background-color: #f6f8fa; }
-        </style>
-      </head>
-      <body>
-        ${rawHtml}
-      </body>
-      </html>
-    `;
+    const wrapper = document.createElement('div');
+    wrapper.style.padding = '20px';
+    wrapper.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    wrapper.style.lineHeight = '1.6';
+    wrapper.style.color = '#000';
     
-    // Save as HTML to perfectly preserve formatting across any system
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // Clone node to avoid modifying the actual DOM
+    wrapper.appendChild(mdContainer.cloneNode(true));
     
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const opt = {
+      margin:       0.5,
+      filename:     `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+    
+    // Natively generate the PDF blob without hitting a server
+    html2pdf().set(opt).from(wrapper).save();
   };
 
   const sendMessage = async () => {
