@@ -12,7 +12,6 @@ const LANGUAGES = [
 function FileTranslation() {
   const [file, setFile] = useState(null);
   const [translatedContent, setTranslatedContent] = useState("");
-  const [downloadUrl, setDownloadUrl] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState("Tamil");
   const [loading, setLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
@@ -39,7 +38,6 @@ function FileTranslation() {
     }
     setFile(selectedFile);
     setTranslatedContent("");
-    setDownloadUrl(null);
     setChatMessages([]);
   };
 
@@ -66,7 +64,6 @@ function FileTranslation() {
       }
       setFile(selectedFile);
       setTranslatedContent("");
-      setDownloadUrl(null);
       setChatMessages([]);
     }
   };
@@ -78,7 +75,6 @@ function FileTranslation() {
     }
     setLoading(true);
     setTranslatedContent("");
-    setDownloadUrl(null);
     setChatMessages([]);
     
     try {
@@ -97,12 +93,6 @@ function FileTranslation() {
 
       const data = await response.json();
       setTranslatedContent(data.translated_content);
-      
-      // Dynamically create a downloadable text file from the translated content
-      if (data.translated_content) {
-        const blob = new Blob([data.translated_content], { type: 'text/plain;charset=utf-8' });
-        setDownloadUrl(URL.createObjectURL(blob));
-      }
       
       // Index for RAG
       setIndexing(true);
@@ -132,6 +122,47 @@ function FileTranslation() {
       setLoading(false);
       setIndexing(false);
     }
+  };
+
+  const handleDownload = () => {
+    const mdContainer = document.querySelector('.markdown-body');
+    if (!mdContainer) return;
+    
+    const rawHtml = mdContainer.innerHTML;
+    const fullHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Translated Document (${selectedLanguage})</title>
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            line-height: 1.6; color: #24292e; max-width: 900px; margin: 0 auto; padding: 40px; 
+          }
+          h1, h2, h3, h4 { border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; }
+          table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+          table th, table td { padding: 6px 13px; border: 1px solid #dfe2e5; }
+          table tr:nth-child(2n) { background-color: #f6f8fa; }
+        </style>
+      </head>
+      <body>
+        ${rawHtml}
+      </body>
+      </html>
+    `;
+    
+    // Save as HTML to perfectly preserve formatting across any system
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const sendMessage = async () => {
@@ -232,10 +263,14 @@ function FileTranslation() {
             <span className="pane-title">
               <FileText size={18} /> Translated Output
             </span>
-            {downloadUrl && (
-              <a href={downloadUrl} download={`translated_${file?.name?.replace(/\.[^/.]+$/, "") || 'document'}.txt`} className="download-link">
+            {translatedContent && (
+              <button 
+                onClick={handleDownload} 
+                className="download-link" 
+                style={{ border: 'none', cursor: 'pointer' }}
+              >
                 <Download size={16} /> Download File
-              </a>
+              </button>
             )}
           </div>
 

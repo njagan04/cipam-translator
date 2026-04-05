@@ -29,6 +29,7 @@ function TextTranslator() {
         body: new URLSearchParams({
           text: inputText,
           lang: selectedLanguage,
+          source_lang: "English",
         }),
       });
 

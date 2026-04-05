@@ -2,8 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  max-width: 1800px;
-  width: 95%;
+  max-width: 1600px !important;
+  width: 90% !important;
   height: calc(100vh - 100px); /* Fill remaining viewport minus header */
 }
 
@@ -128,7 +128,7 @@
 
 /* Chat Pane (Right Side) */
 .chat-pane {
-  flex: 0 0 350px;
+  flex: 1;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--surface-border);

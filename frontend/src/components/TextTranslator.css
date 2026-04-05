@@ -23,7 +23,7 @@
 
 .translator-grid {
   display: grid;
-  grid-template-columns: 1fr 200px 1fr;
+  grid-template-columns: 1fr 180px 1.25fr;
   gap: 1.5rem;
   align-items: stretch;
 }
@@ -137,13 +137,20 @@
   margin-right: 8px;
 }
 
+.lang-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-right: 8px;
+}
+
 .lang-select {
   background: transparent !important;
   border: none !important;
   padding-left: 0 !important;
   box-shadow: none !important;
   cursor: pointer;
-  appearance: none;
 }
 
 .translate-btn {

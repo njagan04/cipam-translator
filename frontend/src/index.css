@@ -151,6 +151,11 @@ input[type="text"]:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px var(--primary-light);
 }
 
+select option {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
 /* Spinner */
 .spinner {
   width: 20px;
