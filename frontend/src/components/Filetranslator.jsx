@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DocumentChat from "./DocumentChat";
 
 function FileTranslation() {
   const [file, setFile] = useState(null);
@@ -6,6 +7,8 @@ function FileTranslation() {
   const [downloadFile, setDownloadFile] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState("Tamil");
   const [loading, setLoading] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [indexing, setIndexing] = useState(false);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -26,7 +29,8 @@ function FileTranslation() {
     setLoading(true);
     setTranslatedContent("");
     setDownloadFile(null);
-
+    setShowChat(false); // reset chat
+    
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -45,6 +49,20 @@ function FileTranslation() {
       const data = await response.json();
       setTranslatedContent(data.translated_content);
       setDownloadFile(data.download_file);
+      
+      // Index for RAG
+      setIndexing(true);
+      fetch("http://localhost:8000/index-document", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: data.translated_content })
+      }).then(res => res.json()).then(idxData => {
+         if (idxData.success) {
+            console.log("Document indexed successfully.");
+         }
+      }).catch(err => console.error("Indexing failed", err))
+      .finally(() => setIndexing(false));
+
     } catch (error) {
       console.error("Translation error:", error);
       alert("Translation failed. Please try again.");
@@ -115,6 +133,22 @@ function FileTranslation() {
         >
           Download Translated File
         </a>
+      )}
+
+      {/* RAG UI Toggle */}
+      {translatedContent && !showChat && (
+        <button 
+           className="main-btn" 
+           onClick={() => setShowChat(true)}
+           style={{ marginTop: '10px', backgroundColor: '#4CAF50', border: 'none', width: '100%' }}
+           disabled={indexing}
+        >
+           {indexing ? "⏳ Preparing Chat..." : `💬 Chat with Document (in ${selectedLanguage})`}
+        </button>
+      )}
+
+      {showChat && (
+        <DocumentChat lang={selectedLanguage} onClose={() => setShowChat(false)} />
       )}
     </div>
   );
