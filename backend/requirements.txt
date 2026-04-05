@@ -5,3 +5,9 @@ pymupdf
 gradio
 gradio_client 
 python-multipart
+sarvamai
+python-dotenv
+langchain
+langchain-google-genai
+langchain-community
+faiss-cpu
