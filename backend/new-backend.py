@@ -1,10 +1,15 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from gradio_client import Client, handle_file
-import os
-import uuid
 from pydantic import BaseModel
+import fitz  # PyMuPDF
+from sarvamai import SarvamAI
+from dotenv import load_dotenv
+import os
+import time
 import rag_service
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -17,14 +22,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- Gradio Client ----------------
-client = Client("Sudhan26/Text-Translation")
+# ---------------- Sarvam Client Setup ----------------
+def get_sarvam_client():
+    # Support both SARVAM_API_KEY and KEY depending on user .env
+    key = os.getenv("SARVAM_API_KEY", os.getenv("KEY"))
+    if not key:
+        raise HTTPException(status_code=500, detail="Sarvam API Key is missing. Please set SARVAM_API_KEY or KEY in backend/.env")
+    return SarvamAI(api_subscription_key=key)
 
-# ---------------- Allowed Languages ----------------
-ALLOWED_LANGS = [
-    "Tamil","Hindi","Telugu","Malayalam","Kannada",
-    "Marathi","Bengali","Gujarati","Punjabi","Urdu"
-]
+SARVAM_LANG_MAP = {
+    "Hindi": "hi-IN",
+    "Tamil": "ta-IN",
+    "Telugu": "te-IN",
+    "Kannada": "kn-IN",
+    "Malayalam": "ml-IN",
+    "Marathi": "mr-IN",
+    "Gujarati": "gu-IN",
+    "Punjabi": "pa-IN",
+    "Bengali": "bn-IN",
+    "Urdu": "hi-IN" # Fallback to Hindi if requested since Sarvam doesn't officially map ur-IN in this wrapper
+}
+
+def translate_long_text(text: str, target_lang: str) -> str:
+    """Chunks text seamlessly to fit within Sarvam AI translation limits."""
+    client = get_sarvam_client()
+    
+    # Intelligently split text by paragraphs/sentences (no word breaks)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=450, chunk_overlap=0)
+    chunks = text_splitter.split_text(text)
+    
+    lang_code = SARVAM_LANG_MAP.get(target_lang, "hi-IN")
+    
+    translated_pieces = []
+    for chunk in chunks:
+        if not chunk.strip():
+            continue
+        try:
+            # Native Sarvam AI rapid translation
+            response = client.text.translate(
+                input=chunk,
+                source_language_code="en-IN",
+                target_language_code=lang_code,
+                model="mayura:v1"
+            )
+            translated_pieces.append(response.translated_text)
+            time.sleep(0.3)  # Small delay to prevent API rate-limit drops
+        except Exception as e:
+            raise Exception(f"Sarvam translation failed on chunk. Details: {str(e)}")
+            
+    return "\n\n".join(translated_pieces)
 
 # ---------------- TEXT TRANSLATION ----------------
 @app.post("/translate-text")
@@ -32,30 +78,18 @@ async def translate_text(
     text: str = Form(...),
     lang: str = Form(...)
 ):
-    # ✅ Validate language
-    if lang not in ALLOWED_LANGS:
-        raise HTTPException(status_code=400, detail="Invalid language selected")
-
-    # ✅ Validate text
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
-
+        
     try:
-        result = client.predict(
-            text=text,
-            lang=lang,
-            api_name="/translate_text"
-        )
-
+        translated = translate_long_text(text, lang)
         return {
             "success": True,
-            "translated_text": result[0],
-            "stats": result[1]
+            "translated_text": translated,
+            "stats": {"time": 0, "chars": len(text)} # Dummy stats to satisfy frontend
         }
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------- FILE TRANSLATION ----------------
 @app.post("/translate-file")
@@ -63,43 +97,34 @@ async def translate_file(
     file: UploadFile = File(...),
     lang: str = Form(...)
 ):
-    # ✅ Validate language
-    if lang not in ALLOWED_LANGS:
-        raise HTTPException(status_code=400, detail="Invalid language selected")
-
-    # ✅ Validate file type
     if not (file.filename.endswith(".txt") or file.filename.endswith(".pdf")):
         raise HTTPException(status_code=400, detail="Only TXT and PDF files are allowed")
 
-    # ✅ Unique temp file (prevents overwrite issues)
-    temp_filename = f"{uuid.uuid4()}_{file.filename}"
-    file_path = temp_filename
-
     try:
-        # Save file temporarily
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
+        content = ""
+        # Parse natively in-memory (No messy temp file saving!)
+        file_bytes = await file.read()
+        
+        if file.filename.endswith(".txt"):
+            content = file_bytes.decode("utf-8")
+        elif file.filename.endswith(".pdf"):
+            pdf = fitz.open(stream=file_bytes, filetype="pdf")
+            for page in pdf:
+                content += page.get_text() + "\n"
 
-        result = client.predict(
-            file=handle_file(file_path),
-            lang=lang,
-            api_name="/translate_file"
-        )
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="File is completely empty or cannot be read")
+
+        translated_content = translate_long_text(content, lang)
 
         return {
             "success": True,
-            "translated_content": result[0],
-            "download_file": result[1]
+            "translated_content": translated_content,
+            "download_file": None  # Frontend handles local blob download logic
         }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File translation failed: {str(e)}")
-
-    finally:
-        # ✅ Always clean up temp file
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
 
 # ---------------- HEALTH CHECK ----------------
 @app.get("/")
@@ -131,6 +156,5 @@ async def chat_document_api(req: ChatRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
         
-    # We will pass the requested language from the frontend to ensure output matches the selected translation language
     answer = rag_service.chat_with_document(req.query, req.lang)
     return {"success": True, "answer": answer}

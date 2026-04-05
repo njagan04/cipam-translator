@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import PromptTemplate
@@ -31,8 +30,9 @@ def index_document(text: str) -> bool:
         if not chunks:
             return False
 
-        print(f"Creating embeddings for {len(chunks)} chunks...")
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        print("Initializing HuggingFace embedding model (this may take a few seconds on first run)...")
+        from langchain_huggingface import HuggingFaceEmbeddings
+        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         vector_store = FAISS.from_texts(chunks, embeddings)
         print("Indexing complete.")
         return True
@@ -55,8 +55,9 @@ def chat_with_document(query: str, lang: str) -> str:
         if not os.getenv("GOOGLE_API_KEY"):
              return "Server configuration error: GOOGLE_API_KEY is missing."
 
-        # Initialize the LLM (Gemini 1.5 Flash provides good speed and native multilingual abilities)
-        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
+        # Initialize the LLM (Gemini latest provides good speed and native multilingual abilities)
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
         
         # Set up retrieval
         retriever = vector_store.as_retriever(search_kwargs={"k": 4})
