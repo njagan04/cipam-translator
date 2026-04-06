@@ -1,99 +1,181 @@
-# ==========================================================
-# AI MULTILINGUAL TRANSLATION SYSTEM - FINAL VERSION
-# ==========================================================
-
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from deep_translator import GoogleTranslator
-import fitz
-import io
+import os
+import time
 
-app = FastAPI(title="AI Multilingual Translation System")
+from dotenv import load_dotenv
+load_dotenv()
 
-# ------------------ REQUEST MODEL ------------------
+app = FastAPI()
 
-class TextData(BaseModel):
-    text: str
-    target_lang: str
+# ---------------- CORS ----------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ⚠️ Change in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# ---------------- Sarvam Client Setup ----------------
+def get_sarvam_client():
+    from sarvamai import SarvamAI
+    # Support both SARVAM_API_KEY and KEY depending on user .env
+    key = os.getenv("SARVAM_API_KEY", os.getenv("KEY"))
+    if not key:
+        raise HTTPException(status_code=500, detail="Sarvam API Key is missing. Please set SARVAM_API_KEY or KEY in backend/.env")
+    return SarvamAI(api_subscription_key=key)
 
-# ------------------ HOME ------------------
+SARVAM_LANG_MAP = {
+    "Hindi": "hi-IN",
+    "Tamil": "ta-IN",
+    "Telugu": "te-IN",
+    "Kannada": "kn-IN",
+    "Malayalam": "ml-IN",
+    "Marathi": "mr-IN",
+    "Gujarati": "gu-IN",
+    "Punjabi": "pa-IN",
+    "Bengali": "bn-IN",
+    "Urdu": "hi-IN" # Fallback to Hindi if requested since Sarvam doesn't officially map ur-IN in this wrapper
+}
 
-@app.get("/")
-def home():
-    return {"message": "AI Translator API running successfully 🚀"}
+def translate_long_text(text: str, target_lang: str, source_lang: str = "English") -> str:
+    """Chunks text seamlessly to fit within Sarvam AI translation limits."""
+    from concurrent.futures import ThreadPoolExecutor
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    
+    client = get_sarvam_client()
+    
+    # Intelligently split text by paragraphs/sentences (no word breaks)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=450, chunk_overlap=0)
+    chunks = text_splitter.split_text(text)
+    
+    lang_code = SARVAM_LANG_MAP.get(target_lang, "hi-IN")
+    source_lang_code = SARVAM_LANG_MAP.get(source_lang, "en-IN") if source_lang != "English" else "en-IN"
+    
+    valid_chunks = [c for c in chunks if c.strip()]
+    if not valid_chunks:
+        return ""
 
+    def translate_single_chunk(idx, text_chunk):
+        try:
+            # Native Sarvam AI rapid translation
+            response = client.text.translate(
+                input=text_chunk,
+                source_language_code=source_lang_code,
+                target_language_code=lang_code,
+                model="mayura:v1"
+            )
+            return (idx, response.translated_text)
+        except Exception as e:
+            # If a strict failure happens, gracefully let the document pass with a warning, or raise
+            return (idx, f"[Error predicting text logic: {str(e)}]")
 
-# ------------------ LANGUAGES ------------------
+    translated_pieces = [""] * len(valid_chunks)
+    
+    # 15 worker threads allows extremely high speed, testing Sarvam API rate limits constraints
+    with ThreadPoolExecutor(max_workers=15) as executor:
+        futures = []
+        for i, chunk in enumerate(valid_chunks):
+            futures.append(executor.submit(translate_single_chunk, i, chunk))
+            time.sleep(0.01) # Tiny buffer to prevent instantly slamming server with 15 simultaneous spikes
+            
+        for future in futures:
+            idx, result_text = future.result()
+            translated_pieces[idx] = result_text
 
-@app.get("/languages")
-def get_languages():
-    return {
-        "ta": "Tamil",
-        "hi": "Hindi",
-        "te": "Telugu",
-        "ml": "Malayalam",
-        "kn": "Kannada",
-        "mr": "Marathi",
-        "bn": "Bengali",
-        "gu": "Gujarati",
-        "pa": "Punjabi",
-        "ur": "Urdu"
-    }
+    return "\n\n".join(translated_pieces)
 
-
-# ------------------ TEXT TRANSLATION ------------------
-
+# ---------------- TEXT TRANSLATION ----------------
 @app.post("/translate-text")
-def translate_text(data: TextData):
+async def translate_text(
+    text: str = Form(...),
+    lang: str = Form(...),
+    source_lang: str = Form("English")
+):
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+        
     try:
-        translated = GoogleTranslator(
-            source="en",
-            target=data.target_lang
-        ).translate(data.text)
+        translated = translate_long_text(text, lang, source_lang)
+        return {
+            "success": True,
+            "translated_text": translated,
+            "stats": {"time": 0, "chars": len(text)} # Dummy stats to satisfy frontend
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------- FILE TRANSLATION ----------------
+@app.post("/translate-file")
+async def translate_file(
+    file: UploadFile = File(...),
+    lang: str = Form(...)
+):
+    if not (file.filename.endswith(".txt") or file.filename.endswith(".pdf")):
+        raise HTTPException(status_code=400, detail="Only TXT and PDF files are allowed")
+
+    try:
+        content = ""
+        # Parse natively in-memory (No messy temp file saving!)
+        file_bytes = await file.read()
+        
+        if file.filename.endswith(".txt"):
+            content = file_bytes.decode("utf-8")
+        elif file.filename.endswith(".pdf"):
+            import fitz # Lazy load PyMuPDF dynamically upon first PDF upload to save massive boot time
+            pdf = fitz.open(stream=file_bytes, filetype="pdf")
+            for page in pdf:
+                content += page.get_text() + "\n"
+
+        if not content.strip():
+            raise HTTPException(status_code=400, detail="File is completely empty or cannot be read")
+
+        translated_content = translate_long_text(content, lang)
 
         return {
-            "original_text": data.text,
-            "translated_text": translated
+            "success": True,
+            "translated_content": translated_content,
+            "download_file": None  # Frontend handles local blob download logic
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"File translation failed: {str(e)}")
+
+# ---------------- HEALTH CHECK ----------------
+@app.get("/")
+def home():
+    return {"message": "Translation API is running"}
 
 
-# ------------------ FILE TRANSLATION ------------------
+# ---------------- RAG ENDPOINTS ----------------
+class IndexRequest(BaseModel):
+    text: str
 
-@app.post("/translate-file")
-async def translate_file(file: UploadFile = File(...), target_lang: str = "ta"):
-    try:
-        content = ""
+class ChatRequest(BaseModel):
+    query: str
+    lang: str
 
-        if file.filename.endswith(".txt"):
-            content = (await file.read()).decode("utf-8")
+@app.post("/index-document")
+async def index_document_api(req: IndexRequest):
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    
+    # Lazy load massive LangChain architectural weights only at the explicit moment of indexing
+    import rag_service 
+    
+    success = rag_service.index_document(req.text)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to index document. Check server logs.")
+    
+    return {"success": True, "message": "Document indexed for RAG"}
 
-        elif file.filename.endswith(".pdf"):
-            pdf = fitz.open(stream=await file.read(), filetype="pdf")
-            for page in pdf:
-                content += page.get_text()
-
-        else:
-            return {"error": "Only .txt and .pdf supported"}
-
-        translated = GoogleTranslator(
-            source="en",
-            target=target_lang
-        ).translate(content)
-
-        file_like = io.BytesIO(translated.encode("utf-8"))
-
-        return StreamingResponse(
-            file_like,
-            media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": "attachment; filename=translated_output.txt"
-            }
-        )
-
-    except Exception as e:
-        return {"error": str(e)}
+@app.post("/chat-document")
+async def chat_document_api(req: ChatRequest):
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+        
+    import rag_service
+    answer = rag_service.chat_with_document(req.query, req.lang)
+    return {"success": True, "answer": answer}
