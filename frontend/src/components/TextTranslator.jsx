@@ -96,6 +96,7 @@ function TextTranslator() {
               className="lang-select"
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
+              disabled={loading}
             >
               {LANGUAGES.map((lang) => (
                 <option key={lang} value={lang}>{lang}</option>
