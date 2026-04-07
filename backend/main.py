@@ -43,18 +43,30 @@ SARVAM_LANG_MAP = {
 def translate_long_text(text: str, target_lang: str, source_lang: str = "English") -> str:
     """Chunks text seamlessly to fit within Sarvam AI translation limits."""
     from concurrent.futures import ThreadPoolExecutor
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
     
     client = get_sarvam_client()
     
-    # Intelligently split text by paragraphs/sentences (no word breaks)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=450, chunk_overlap=0)
-    chunks = text_splitter.split_text(text)
-    
+    # Cloud Threshold Optimization: 850 natively fits under Sarvam network limits while dramatically reducing total requests
+    limit = 850
+    words = text.split(' ')
+    valid_chunks = []
+    current_chunk = []
+    current_length = 0
+    for word in words:
+        if current_length + len(word) + 1 > limit and current_chunk:
+            valid_chunks.append(' '.join(current_chunk))
+            current_chunk = [word]
+            current_length = len(word)
+        else:
+            current_chunk.append(word)
+            current_length += len(word) + 1
+    if current_chunk:
+        valid_chunks.append(' '.join(current_chunk))
+        
     lang_code = SARVAM_LANG_MAP.get(target_lang, "hi-IN")
     source_lang_code = SARVAM_LANG_MAP.get(source_lang, "en-IN") if source_lang != "English" else "en-IN"
-    
-    valid_chunks = [c for c in chunks if c.strip()]
+        
+    valid_chunks = [c for c in valid_chunks if c.strip()]
     if not valid_chunks:
         return ""
 
@@ -74,8 +86,8 @@ def translate_long_text(text: str, target_lang: str, source_lang: str = "English
 
     translated_pieces = [""] * len(valid_chunks)
     
-    # 15 worker threads allows extremely high speed, testing Sarvam API rate limits constraints
-    with ThreadPoolExecutor(max_workers=15) as executor:
+    # 7 worker threads mathematically balances Sarvam rate limits against standard Cloud Vercel 60s Timeouts for massive files
+    with ThreadPoolExecutor(max_workers=7) as executor:
         futures = []
         for i, chunk in enumerate(valid_chunks):
             futures.append(executor.submit(translate_single_chunk, i, chunk))
