@@ -100,7 +100,8 @@ function FileTranslation() {
       formData.append("file", file);
       formData.append("lang", selectedLanguage);
 
-      const response = await fetch("http://localhost:8000/translate-file", {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_BASE_URL}/translate-file`, {
         method: "POST",
         body: formData,
       });
@@ -118,7 +119,7 @@ function FileTranslation() {
         { role: "assistant", text: `I am analyzing the translated document. Please wait...` }
       ]);
       
-      const idxRes = await fetch("http://localhost:8000/index-document", {
+      const idxRes = await fetch(`${API_BASE_URL}/index-document`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: data.translated_content })
@@ -192,7 +193,8 @@ function FileTranslation() {
     setChatLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8000/chat-document", {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+      const response = await fetch(`${API_BASE_URL}/chat-document`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: userMsg, lang: selectedLanguage })
