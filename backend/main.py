@@ -7,6 +7,8 @@ import time
 from dotenv import load_dotenv
 load_dotenv()
 
+import rag_service  # Pre-load at startup to avoid cold import delay on first request
+
 app = FastAPI()
 
 # ---------------- CORS ----------------
@@ -174,8 +176,7 @@ async def index_document_api(req: IndexRequest):
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     
-    # Lazy load massive LangChain architectural weights only at the explicit moment of indexing
-    import rag_service 
+    # rag_service already loaded at startup
     
     success = rag_service.index_document(req.text)
     if not success:
@@ -188,6 +189,6 @@ async def chat_document_api(req: ChatRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
         
-    import rag_service
+    # rag_service already loaded at startup
     answer = rag_service.chat_with_document(req.query, req.lang)
     return {"success": True, "answer": answer}
