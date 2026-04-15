@@ -7,7 +7,12 @@ import time
 from dotenv import load_dotenv
 load_dotenv()
 
-import rag_service  # Pre-load at startup to avoid cold import delay on first request
+try:
+    import rag_service  # Pre-load at startup to avoid cold import delay on first request
+    print("rag_service loaded successfully at startup.")
+except Exception as e:
+    print(f"WARNING: rag_service failed to load at startup: {e}. Document chat will be unavailable.")
+    rag_service = None
 
 app = FastAPI()
 
@@ -177,6 +182,8 @@ async def index_document_api(req: IndexRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
     
     # rag_service already loaded at startup
+    if rag_service is None:
+        raise HTTPException(status_code=503, detail="RAG service unavailable. Check server logs for import errors.")
     
     success = rag_service.index_document(req.text)
     if not success:
@@ -190,5 +197,7 @@ async def chat_document_api(req: ChatRequest):
         raise HTTPException(status_code=400, detail="Query cannot be empty")
         
     # rag_service already loaded at startup
+    if rag_service is None:
+        raise HTTPException(status_code=503, detail="RAG service unavailable. Check server logs for import errors.")
     answer = rag_service.chat_with_document(req.query, req.lang)
     return {"success": True, "answer": answer}
