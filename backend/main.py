@@ -19,7 +19,7 @@ app = FastAPI()
 # ---------------- CORS ----------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ Change in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -139,6 +139,52 @@ def smart_translate(text: str, target_lang: str, source_lang: str = "English") -
         # Under 10 pages, continue using optimal Sarvam sequence
         return translate_long_text(text, target_lang, source_lang)
 
+# ---------------- PROMPT ENGINEERING GATES ----------------
+def precheck_text(text: str) -> bool:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.0)
+    template = """[Role]: You are an enterprise compliance validator and language detection engine.
+[Task]: Evaluate the source text. Identify if the source language is strictly English. If it is English, output VALID. If it contains non-English source text, output INVALID.
+[Format]: Output ONLY the word VALID or INVALID.
+
+Text to evaluate:
+{text}
+"""
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    try:
+        result = chain.invoke({"text": text[:2000]}).strip().upper()
+        # Ensure exact match because the word 'VALID' is technically inside the word 'INVALID'!
+        return result == "VALID"
+    except Exception as e:
+        print(f"Text precheck failed: {e}")
+        return True # Failsafe open
+
+def precheck_file(text: str) -> bool:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.0)
+    template = """[Context]: You are evaluating a document for the Cell for IPR Promotion and Management (CIPAM) or Intellectual Property Rights (IRM) backend system.
+[Action]: Analyze the core subject matter of the provided document text. Check if the document discusses CIPAM, intellectual property, trademarks, IRM, or related compliance.
+[Result]: If the context is valid and related, output VALID. If it is completely unrelated to CIPAM or IRM, output INVALID.
+
+Document to evaluate:
+{text}
+"""
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    try:
+        result = chain.invoke({"text": text[:5000]}).strip().upper()
+        return result == "VALID"
+    except Exception as e:
+        print(f"File precheck failed: {e}")
+        return True # Failsafe open
+
 # ---------------- TEXT TRANSLATION ----------------
 @app.post("/translate-text")
 async def translate_text(
@@ -150,6 +196,14 @@ async def translate_text(
         raise HTTPException(status_code=400, detail="Text cannot be empty")
         
     try:
+        # ---- RTF GATE ----
+        if not precheck_text(text):
+            return {
+                "success": True,
+                "translated_text": "crm info are in english only, so english translation only allowed",
+                "stats": {"time": 0, "chars": len(text)}
+            }
+
         translated = smart_translate(text, lang, source_lang)
         return {
             "success": True,
@@ -183,6 +237,15 @@ async def translate_file(
 
         if not content.strip():
             raise HTTPException(status_code=400, detail="File is completely empty or cannot be read")
+
+        # ---- CARE GATE ----
+        if not precheck_file(content):
+            return {
+                "success": True,
+                "aborted": True,
+                "translated_content": "### 🛑 Security Gate Abort\nError: The uploaded file context is not based on CIPAM or IRM. Translation and Document Indexing aborted.",
+                "download_file": None
+            }
 
         translated_content = smart_translate(content, lang)
 
