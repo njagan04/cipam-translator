@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Copy, RefreshCw, Languages, XCircle, CheckCircle2 } from "lucide-react";
@@ -10,11 +10,17 @@ const LANGUAGES = [
 ];
 
 function TextTranslator() {
-  const [inputText, setInputText] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState("Tamil");
-  const [translatedText, setTranslatedText] = useState("");
+  const [inputText, setInputText] = useState(() => sessionStorage.getItem("text_input") || "");
+  const [selectedLanguage, setSelectedLanguage] = useState(() => sessionStorage.getItem("text_lang") || "Tamil");
+  const [translatedText, setTranslatedText] = useState(() => sessionStorage.getItem("text_output") || "");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem("text_input", inputText);
+    sessionStorage.setItem("text_lang", selectedLanguage);
+    sessionStorage.setItem("text_output", translatedText);
+  }, [inputText, selectedLanguage, translatedText]);
 
   const handleTranslate = async () => {
     if (!inputText.trim()) return;

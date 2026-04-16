@@ -12,14 +12,24 @@ const LANGUAGES = [
 
 function FileTranslation() {
   const [file, setFile] = useState(null);
-  const [translatedContent, setTranslatedContent] = useState("");
-  const [selectedLanguage, setSelectedLanguage] = useState("Tamil");
+  const [fileName, setFileName] = useState(() => sessionStorage.getItem("file_name") || "");
+  const [translatedContent, setTranslatedContent] = useState(() => sessionStorage.getItem("file_output") || "");
+  const [selectedLanguage, setSelectedLanguage] = useState(() => sessionStorage.getItem("file_lang") || "Tamil");
   const [loading, setLoading] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   // RAG Chat State
-  const [chatMessages, setChatMessages] = useState([]);
+  const [chatMessages, setChatMessages] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem("file_chat")) || []; } catch { return []; }
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem("file_name", fileName);
+    sessionStorage.setItem("file_output", translatedContent);
+    sessionStorage.setItem("file_lang", selectedLanguage);
+    sessionStorage.setItem("file_chat", JSON.stringify(chatMessages));
+  }, [fileName, translatedContent, selectedLanguage, chatMessages]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef(null);
@@ -47,6 +57,7 @@ function FileTranslation() {
     }
     
     setFile(selectedFile);
+    setFileName(selectedFile.name);
     setTranslatedContent("");
     setChatMessages([]);
   };
@@ -81,6 +92,7 @@ function FileTranslation() {
       }
       
       setFile(selectedFile);
+      setFileName(selectedFile.name);
       setTranslatedContent("");
       setChatMessages([]);
     }
@@ -248,10 +260,10 @@ function FileTranslation() {
             <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px" }}>Max size: 10MB (.pdf, .txt)</p>
           </div>
 
-          {file && (
+          {(file || fileName) && (
             <div className="file-name-display">
               <File size={16} /> 
-              {file.name}
+              {file ? file.name : fileName}
             </div>
           )}
 
