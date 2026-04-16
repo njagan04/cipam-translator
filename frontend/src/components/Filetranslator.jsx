@@ -119,11 +119,21 @@ function FileTranslation() {
       });
 
       if (!response.ok) {
-        throw new Error("Translation failed");
+        let errStr = "Translation failed";
+        try {
+           const errData = await response.json();
+           errStr = errData.detail || errStr;
+        } catch(e) {}
+        throw new Error(errStr);
       }
 
       const data = await response.json();
       setTranslatedContent(data.translated_content);
+      
+      // Stop execution completely if the backend explicitly aborted (e.g. CIPAM fail)
+      if (data.aborted) {
+          return;
+      }
       
       // Index for RAG
       setIndexing(true);
@@ -148,7 +158,7 @@ function FileTranslation() {
 
     } catch (error) {
       console.error("Translation error:", error);
-      alert("Process failed. Please try again.");
+      alert(`Process failed: ${error.message}`);
     } finally {
       setLoading(false);
       setIndexing(false);
