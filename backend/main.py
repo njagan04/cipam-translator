@@ -32,7 +32,7 @@ def get_sarvam_client():
     key = os.getenv("SARVAM_API_KEY", os.getenv("KEY"))
     if not key:
         raise HTTPException(status_code=500, detail="Sarvam API Key is missing. Please set SARVAM_API_KEY or KEY in backend/.env")
-    return SarvamAI(api_subscription_key=key)
+    return SarvamAI(api_subscription_key=key.strip())
 
 SARVAM_LANG_MAP = {
     "Hindi": "hi-IN",
@@ -53,8 +53,8 @@ def translate_long_text(text: str, target_lang: str, source_lang: str = "English
     
     client = get_sarvam_client()
     
-    # Cloud Threshold Optimization: 850 natively fits under Sarvam network limits while dramatically reducing total requests
-    limit = 850
+    # Cloud Threshold Optimization: 1000 natively fits under Sarvam network limits while dramatically reducing total requests
+    limit = 1000
     words = text.split(' ')
     valid_chunks = []
     current_chunk = []
@@ -106,6 +106,39 @@ def translate_long_text(text: str, target_lang: str, source_lang: str = "English
 
     return "\n\n".join(translated_pieces)
 
+def translate_with_gemini(text: str, target_lang: str, source_lang: str = "English") -> str:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    
+    # 2.5 flash is extremely fast, cheap, and has a massive context window natively built for huge text
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+    template = """You are a highly accurate professional language translator.
+You must translate the completely provided text from {source_lang} to {target_lang}.
+Provide ONLY the translated text without any conversational filler, explanations, or extra markdown wrapping if not present in the source.
+
+Original Text:
+{text}
+"""
+    prompt = PromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    return chain.invoke({"text": text, "source_lang": source_lang, "target_lang": target_lang})
+
+def smart_translate(text: str, target_lang: str, source_lang: str = "English") -> str:
+    # Approx 30,000 characters represents ~10 pages of typical PDF content
+    limit_chars = 30000 
+    
+    if len(text) > limit_chars:
+        print(f"Text too large ({len(text)} chars, > 10 pages). Falling back natively to Gemini Flash...")
+        try:
+            return translate_with_gemini(text, target_lang, source_lang)
+        except Exception as e:
+            print(f"Gemini fallback failed: {e}. Trying Sarvam array chunking as absolute last resort...")
+            return translate_long_text(text, target_lang, source_lang)
+    else:
+        # Under 10 pages, continue using optimal Sarvam sequence
+        return translate_long_text(text, target_lang, source_lang)
+
 # ---------------- TEXT TRANSLATION ----------------
 @app.post("/translate-text")
 async def translate_text(
@@ -117,7 +150,7 @@ async def translate_text(
         raise HTTPException(status_code=400, detail="Text cannot be empty")
         
     try:
-        translated = translate_long_text(text, lang, source_lang)
+        translated = smart_translate(text, lang, source_lang)
         return {
             "success": True,
             "translated_text": translated,
@@ -151,7 +184,7 @@ async def translate_file(
         if not content.strip():
             raise HTTPException(status_code=400, detail="File is completely empty or cannot be read")
 
-        translated_content = translate_long_text(content, lang)
+        translated_content = smart_translate(content, lang)
 
         return {
             "success": True,
