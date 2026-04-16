@@ -8,12 +8,13 @@
 1. [Project Overview](#1-project-overview)
 2. [Technology Stack](#2-technology-stack)
 3. [Backend Architecture](#3-backend-architecture)
-4. [Translation Pipeline — Sarvam AI](#4-translation-pipeline--sarvam-ai)
-5. [RAG System — Document Chat](#5-rag-system--document-chat)
-6. [API Endpoints Reference](#6-api-endpoints-reference)
-7. [Deployment Setup](#7-deployment-setup)
-8. [Design Decisions & Advantages](#8-design-decisions--advantages)
-9. [Key Limitations & Trade-offs](#9-key-limitations--trade-offs)
+4. [Translation Pipeline — Sarvam AI & Routing](#4-translation-pipeline--sarvam-ai--routing)
+5. [Security & Prompt Engineering Gates](#5-security--prompt-engineering-gates)
+6. [RAG System — Document Chat](#6-rag-system--document-chat)
+7. [API Endpoints Reference](#7-api-endpoints-reference)
+8. [Deployment Setup](#8-deployment-setup)
+9. [Design Decisions & Advantages](#9-design-decisions--advantages)
+10. [Key Limitations & Trade-offs](#10-key-limitations--trade-offs)
 
 ---
 
@@ -103,7 +104,7 @@ User asks question → Frontend
 
 ---
 
-## 4. Translation Pipeline — Sarvam AI
+## 4. Translation Pipeline — Sarvam AI & Routing
 
 ### What is Sarvam AI?
 Sarvam AI is an Indian AI company that specializes in **large language models and APIs for Indian languages**. Their translation model (`mayura:v1`) is specifically trained on Indic language pairs, making it far more accurate for languages like Tamil, Telugu, Kannada, etc., compared to general-purpose translators.
@@ -141,6 +142,19 @@ limit = 850  # characters per chunk
 - Each chunk accumulates words until the 850-char threshold is reached
 - When the threshold is hit, the chunk is saved and a new one starts
 
+### Smart Router & Gemini Fallback
+To optimize API usage and avoid extreme API consumption on massive documents (e.g., 20+ page PDFs), a **Smart Router** evaluates the physical size of incoming text *before* applying the Sarvam logic.
+
+```python
+limit_chars = 30000 # Approx 10 pages
+
+if len(text) > limit_chars:
+    # Routes payload to Google Gemini 2.5 Flash natively
+    return translate_with_gemini(text, target_lang, source_lang)
+```
+- **Benefit:** Massive documents bypass the intensive 850-character array chunking loop, completely saving Sarvam AI API credits.
+- **Failover:** If Gemini fails, it natively falls back to sequential Sarvam chunking as the absolute last resort.
+
 ### Parallel Translation
 ```python
 with ThreadPoolExecutor(max_workers=7) as executor:
@@ -172,7 +186,26 @@ except Exception as e:
 
 ---
 
-## 5. RAG System — Document Chat
+## 5. Security & Prompt Engineering Gates
+
+Before any translation occurs, the system enforces a strict **Pre-Check LLM Firewall** using Google Gemini 2.5 Flash. This intercepts arbitrary or malicious use-cases and restricts translation exclusively to English or CIPAM-related domains.
+
+### RTF Gate (Text Check)
+Used in `/translate-text` heavily prioritizing the **Role, Task, Format (RTF)** prompt framework:
+- **Role**: Enterprise Compliance Validator.
+- **Logic**: Reads the first 2,000 characters and identifies if the text is English.
+- **Execution**: If non-English (e.g., Spanish, Tamil) is pasted, it cleanly aborts and returns the warning string natively to the UI: `"crm info are in english only, so english translation only allowed"`.
+
+### CARE Gate (File Document Check)
+Used in `/translate-file` explicitly leveraging the **Context, Action, Result, Example (CARE)** framework:
+- **Context**: File evaluations for the CIPAM or IRM systems.
+- **Logic**: Reads the first 5,000 characters (approx. 1st page) and searches for context regarding trademarks, intellectual property, or CIPAM concepts.
+- **Execution**: If an unrelated file (e.g., a cooking recipe) is uploaded, the API aborts the translation natively and returns: `"Error: The uploaded file context is not based on CIPAM or IRM."`
+- **RAG Integration**: If a document fails the CARE check, the backend explicitly sends an `"aborted": True` flag, which elegantly halts the Frontend React App from continuing with Document Indexing/Chat instantiation.
+
+---
+
+## 6. RAG System — Document Chat
 
 ### What is RAG?
 **Retrieval-Augmented Generation (RAG)** is an AI technique that combines:
@@ -307,7 +340,7 @@ PromptTemplate  →  ChatGoogleGenerativeAI  →  StrOutputParser
 
 ---
 
-## 6. API Endpoints Reference
+## 7. API Endpoints Reference
 
 | Method | Endpoint | Purpose | Input | Output |
 |---|---|---|---|---|
@@ -319,7 +352,7 @@ PromptTemplate  →  ChatGoogleGenerativeAI  →  StrOutputParser
 
 ---
 
-## 7. Deployment Setup
+## 8. Deployment Setup
 
 ### Platform: Leapcell (Backend)
 
@@ -353,7 +386,7 @@ app.add_middleware(
 
 ---
 
-## 8. Design Decisions & Advantages
+## 9. Design Decisions & Advantages
 
 ### No Database Required
 - Document chunks are stored **in-memory** (`chunks_global` list)
@@ -390,9 +423,12 @@ import rag_service  # Pre-loaded at startup
 - The rest of the document still translates successfully
 - User sees mostly correct output rather than a total failure
 
+### Advanced Pre-Flight Validation
+- Implementing lightweight LLM "sniff-tests" before execution completely protects downstream backend APIs from spending expensive tokens on malicious payloads or off-topic context.
+
 ---
 
-## 9. Key Limitations & Trade-offs
+## 10. Key Limitations & Trade-offs
 
 | Limitation | Impact | Possible Future Fix |
 |---|---|---|
